@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Atmosphera — Weather Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #090c12;
+      --surface:   #0e1420;
+      --card:      #121926;
+      --border:    rgba(255,255,255,0.07);
+      --text:      #e8edf5;
+      --muted:     #5a6478;
+      --accent:    #4fc3f7;
+      --accent2:   #81d4fa;
+      --warm:      #ffb347;
+      --cold:      #7ecfff;
+      --rain:      #90caf9;
+      --glow:      rgba(79,195,247,0.15);
+      --font-head: 'Syne', sans-serif;
+      --font-mono: 'DM Mono', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-head);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ---- NOISE OVERLAY ---- */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 0; opacity: .4;
+    }
+
+    /* ---- AMBIENT BLOBS ---- */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(100px);
+      pointer-events: none;
+      z-index: 0;
+      animation: drift 20s ease-in-out infinite alternate;
+    }
+    .blob-1 { width: 500px; height: 500px; background: rgba(79,195,247,.06); top: -100px; left: -100px; }
+    .blob-2 { width: 400px; height: 400px; background: rgba(129,212,250,.04); bottom: 0; right: -100px; animation-delay: -10s; }
+    @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(40px,30px) scale(1.1); } }
+
+    /* ---- LAYOUT ---- */
+    .container { max-width: 1280px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+    /* ---- HEADER ---- */
+    header {
+      padding: 28px 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+      color: var(--text);
+    }
+    .logo span { color: var(--accent); }
+    .header-badge {
+      font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+      border: 1px solid var(--border); padding: 4px 10px; border-radius: 20px;
+    }
+
+    /* ---- SEARCH BAR ---- */
+    .search-wrapper {
+      padding: 40px 0 32px;
+      display: flex; gap: 12px; align-items: center;
+    }
+    .search-box {
+      flex: 1; max-width: 440px;
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 14px 18px;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .search-box:focus-within {
+      border-color: rgba(79,195,247,.4);
+      box-shadow: 0 0 0 3px var(--glow);
+    }
+    .search-icon { color: var(--muted); font-size: 18px; flex-shrink: 0; }
+    .search-box input {
+      flex: 1; background: none; border: none; outline: none;
+      font-family: var(--font-head); font-size: 15px; color: var(--text);
+    }
+    .search-box input::placeholder { color: var(--muted); }
+    .btn-search {
+      background: var(--accent); color: #000;
+      border: none; padding: 14px 24px; border-radius: 12px;
+      font-family: var(--font-head); font-size: 14px; font-weight: 700;
+      cursor: pointer; transition: opacity .2s, transform .1s;
+      letter-spacing: .3px;
+    }
+    .btn-search:hover { opacity: .85; transform: translateY(-1px); }
+    .btn-search:active { transform: translateY(0); }
+
+    /* ---- GRID ---- */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      grid-template-rows: auto auto;
+      gap: 16px;
+      padding-bottom: 48px;
+    }
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ---- CARD ---- */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+      animation: fadeUp .4s ease both;
+    }
+    .card::before {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,.025) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
+
+    .card-label {
+      font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 16px;
+    }
+
+    /* ---- CURRENT WEATHER CARD ---- */
+    .card-current { grid-row: span 2; }
+    .current-city { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+    .current-country { font-size: 13px; color: var(--muted); font-family: var(--font-mono); margin-bottom: 24px; }
+    .current-temp {
+      font-size: 80px; font-weight: 800; line-height: 1;
+      letter-spacing: -4px; margin-bottom: 4px;
+      background: linear-gradient(135deg, var(--text) 30%, var(--accent));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .current-desc { font-size: 16px; color: var(--muted); margin-bottom: 28px; }
+    .current-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .stat-chip {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px;
+    }
+    .stat-chip-label { font-family: var(--font-mono); font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+    .stat-chip-val { font-size: 20px; font-weight: 700; color: var(--text); }
+    .stat-chip-unit { font-size: 12px; color: var(--muted); }
+
+    /* ---- FORECAST CARD ---- */
+    .forecast-row {
+      display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px;
+    }
+    .forecast-row::-webkit-scrollbar { height: 3px; }
+    .forecast-row::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .forecast-day {
+      flex-shrink: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px 14px; text-align: center; min-width: 100px;
+      transition: border-color .2s, transform .2s;
+    }
+    .forecast-day:hover { border-color: rgba(79,195,247,.3); transform: translateY(-3px); }
+    .forecast-day .day-name { font-size: 11px; font-family: var(--font-mono); color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; }
+    .forecast-day .day-icon { font-size: 28px; margin-bottom: 10px; }
+    .forecast-day .day-hi { font-size: 18px; font-weight: 700; }
+    .forecast-day .day-lo { font-size: 13px; color: var(--muted); font-family: var(--font-mono); }
+    .forecast-day .day-desc { font-size: 10px; color: var(--muted); margin-top: 6px; font-family: var(--font-mono); }
+
+    /* ---- CHART CARD ---- */
+    .chart-canvas-wrapper {
+      position: relative; width: 100%; height: 220px;
+    }
+    canvas { width: 100% !important; }
+
+    /* ---- INSIGHTS GRID ---- */
+    .insights-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    @media (max-width: 700px) { .insights-grid { grid-template-columns: 1fr 1fr; } }
+
+    .insight-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px;
+    }
+    .insight-item .i-label { font-family: var(--font-mono); font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+    .insight-item .i-val { font-size: 26px; font-weight: 800; }
+    .insight-item .i-sub { font-size: 11px; color: var(--muted); font-family: var(--font-mono); margin-top: 2px; }
+
+    /* ---- PREDICTION CARD ---- */
+    .pred-wrap { display: flex; align-items: center; gap: 24px; }
+    .pred-temp { font-size: 56px; font-weight: 800; letter-spacing: -2px; color: var(--warm); }
+    .pred-info { flex: 1; }
+    .pred-trend {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 20px; font-size: 13px; font-weight: 700;
+      font-family: var(--font-mono); margin-bottom: 8px;
+    }
+    .trend-rising  { background: rgba(255,179,71,.15); color: var(--warm); }
+    .trend-falling { background: rgba(126,207,255,.15); color: var(--cold); }
+    .trend-stable  { background: rgba(255,255,255,.07); color: var(--muted); }
+    .pred-confidence { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+    .confidence-bar { height: 4px; background: var(--surface); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+    .confidence-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .8s ease; }
+
+    /* ---- LOADING SPINNER ---- */
+    .spinner-overlay {
+      position: fixed; inset: 0; background: rgba(9,12,18,.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100; opacity: 0; pointer-events: none; transition: opacity .3s;
+    }
+    .spinner-overlay.active { opacity: 1; pointer-events: all; }
+    .spinner {
+      width: 44px; height: 44px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- ERROR TOAST ---- */
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+      background: #1e2736; border: 1px solid rgba(255,80,80,.3); color: #ff8080;
+      padding: 12px 20px; border-radius: 12px; font-size: 14px;
+      font-family: var(--font-mono); transition: transform .3s ease;
+      z-index: 200;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ---- SKELETON ---- */
+    .skeleton { background: linear-gradient(90deg, var(--surface) 25%, var(--card) 50%, var(--surface) 75%); background-size: 200%; animation: shimmer 1.4s infinite; border-radius: 8px; }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+    /* ---- TIMESTAMP ---- */
+    .update-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-align: right; margin-top: 12px; }
+
+    .weather-icon-emoji { font-size: 52px; margin-bottom: 8px; display: block; }
+  </style>
+</head>
+<body>
+  <!-- Ambient background -->
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+
+  <!-- Loading overlay -->
+  <div class="spinner-overlay" id="spinner"><div class="spinner"></div></div>
+  <div class="toast" id="toast">City not found. Please try again.</div>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="logo">Atmo<span>sphera</span></div>
+      <div class="header-badge">Weather Intelligence Dashboard</div>
+    </header>
+
+    <!-- Search -->
+    <div class="search-wrapper">
+      <div class="search-box">
+        <span class="search-icon">⌕</span>
+        <input type="text" id="cityInput" placeholder="Enter city name…" value="London" />
+      </div>
+      <button class="btn-search" onclick="loadAll()">Analyse →</button>
+    </div>
+
+    <!-- Main Dashboard Grid -->
+    <div class="main-grid">
+
+      <!-- Current Weather -->
+      <div class="card card-current" style="animation-delay:.05s">
+        <div class="card-label">Current Conditions</div>
+        <span class="weather-icon-emoji" id="currentIcon">🌤</span>
+        <div class="current-city" id="currentCity">—</div>
+        <div class="current-country" id="currentCountry">—</div>
+        <div class="current-temp" id="currentTemp">—°</div>
+        <div class="current-desc" id="currentDesc">—</div>
+        <div class="current-stats">
+          <div class="stat-chip">
+            <div class="stat-chip-label">Feels Like</div>
+            <div class="stat-chip-val" id="feelsLike">—<span class="stat-chip-unit">°C</span></div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-chip-label">Humidity</div>
+            <div class="stat-chip-val" id="humidity">—<span class="stat-chip-unit">%</span></div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-chip-label">Wind</div>
+            <div class="stat-chip-val" id="windSpeed">—<span class="stat-chip-unit"> m/s</span></div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-chip-label">Pressure</div>
+            <div class="stat-chip-val" id="pressure">—<span class="stat-chip-unit"> hPa</span></div>
+          </div>
+        </div>
+        <div class="update-time" id="updateTime">—</div>
+      </div>
+
+      <!-- 5-Day Forecast -->
+      <div class="card" style="animation-delay:.1s">
+        <div class="card-label">5-Day Forecast</div>
+        <div class="forecast-row" id="forecastRow">
+          <!-- filled by JS -->
+        </div>
+      </div>
+
+      <!-- Temperature Trend Chart -->
+      <div class="card" style="animation-delay:.15s">
+        <div class="card-label">14-Day Temperature Trend</div>
+        <div class="chart-canvas-wrapper">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Insights -->
+      <div class="card" style="animation-delay:.2s">
+        <div class="card-label">7-Day Insights</div>
+        <div class="insights-grid">
+          <div class="insight-item">
+            <div class="i-label">Avg Temp</div>
+            <div class="i-val" id="insAvg">—</div>
+            <div class="i-sub">degrees Celsius</div>
+          </div>
+          <div class="insight-item">
+            <div class="i-label">Highest</div>
+            <div class="i-val" id="insMax" style="color:var(--warm)">—</div>
+            <div class="i-sub">peak temperature</div>
+          </div>
+          <div class="insight-item">
+            <div class="i-label">Lowest</div>
+            <div class="i-val" id="insMin" style="color:var(--cold)">—</div>
+            <div class="i-sub">trough temperature</div>
+          </div>
+          <div class="insight-item">
+            <div class="i-label">Temp Range</div>
+            <div class="i-val" id="insRange">—</div>
+            <div class="i-sub">variability span</div>
+          </div>
+          <div class="insight-item">
+            <div class="i-label">Avg Humidity</div>
+            <div class="i-val" id="insHum">—</div>
+            <div class="i-sub">percent relative</div>
+          </div>
+          <div class="insight-item">
+            <div class="i-label">Data Points</div>
+            <div class="i-val" id="insPts">—</div>
+            <div class="i-sub">readings analysed</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ML Prediction -->
+      <div class="card" style="animation-delay:.25s">
+        <div class="card-label">ML Prediction · Tomorrow</div>
+        <div class="pred-wrap">
+          <div class="pred-temp" id="predTemp">—°</div>
+          <div class="pred-info">
+            <div class="pred-trend" id="predTrend">—</div>
+            <div class="pred-confidence" id="predConf">Confidence: —</div>
+            <div class="confidence-bar"><div class="confidence-fill" id="confBar" style="width:0%"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end main-grid -->
+  </div><!-- end container -->
+
+  <!-- Chart.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+  <script>
+    // =====================================================
+    // WEATHER DASHBOARD — Frontend JavaScript
+    // =====================================================
+
+    let trendChart = null;  // will hold Chart.js instance
+
+    // Map OpenWeatherMap icon codes → emoji
+    const iconMap = {
+      '01d':'☀️','01n':'🌙','02d':'⛅','02n':'🌙','03d':'☁️','03n':'☁️',
+      '04d':'☁️','04n':'☁️','09d':'🌧','09n':'🌧','10d':'🌦','10n':'🌧',
+      '11d':'⛈','11n':'⛈','13d':'❄️','13n':'❄️','50d':'🌫','50n':'🌫'
+    };
+
+    function getIcon(code) {
+      return iconMap[code] || '🌡';
+    }
+
+    function showSpinner(show) {
+      document.getElementById('spinner').classList.toggle('active', show);
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function getCity() {
+      return document.getElementById('cityInput').value.trim() || 'London';
+    }
+
+    // Format timestamp like "Apr 17, 14:32"
+    function fmtTime(isoStr) {
+      const d = new Date(isoStr);
+      return d.toLocaleDateString('en-GB', { day:'numeric', month:'short' })
+           + ', ' + d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+    }
+
+    // ---- FETCH CURRENT WEATHER ----
+    async function loadCurrent(city) {
+      const res = await fetch(`/api/weather/current?city=${encodeURIComponent(city)}`);
+      if (!res.ok) throw new Error('City not found');
+      const d = await res.json();
+
+      document.getElementById('currentIcon').textContent = getIcon(d.icon);
+      document.getElementById('currentCity').textContent = d.city;
+      document.getElementById('currentCountry').textContent = d.country + ' · Live';
+      document.getElementById('currentTemp').textContent = d.temperature + '°';
+      document.getElementById('currentDesc').textContent = d.description;
+      document.getElementById('feelsLike').innerHTML = d.feels_like + '<span class="stat-chip-unit">°C</span>';
+      document.getElementById('humidity').innerHTML = d.humidity + '<span class="stat-chip-unit">%</span>';
+      document.getElementById('windSpeed').innerHTML = d.wind_speed + '<span class="stat-chip-unit"> m/s</span>';
+      document.getElementById('pressure').innerHTML = d.pressure + '<span class="stat-chip-unit"> hPa</span>';
+      document.getElementById('updateTime').textContent = 'Updated ' + fmtTime(d.timestamp);
+    }
+
+    // ---- FETCH FORECAST ----
+    async function loadForecast(city) {
+      const res = await fetch(`/api/weather/forecast?city=${encodeURIComponent(city)}`);
+      const days = await res.json();
+      const row = document.getElementById('forecastRow');
+      row.innerHTML = '';
+      days.forEach(d => {
+        const date = new Date(d.date);
+        const dayName = date.toLocaleDateString('en-GB', { weekday:'short' });
+        row.innerHTML += `
+          <div class="forecast-day">
+            <div class="day-name">${dayName}</div>
+            <div class="day-icon">${getIcon(d.icon)}</div>
+            <div class="day-hi">${d.temp_max}°</div>
+            <div class="day-lo">${d.temp_min}°</div>
+            <div class="day-desc">${d.description}</div>
+          </div>`;
+      });
+    }
+
+    // ---- FETCH HISTORY + DRAW CHART ----
+    async function loadHistory(city) {
+      const res = await fetch(`/api/weather/history?city=${encodeURIComponent(city)}&days=14`);
+      const data = await res.json();
+
+      const labels = data.map(h => {
+        const d = new Date(h.timestamp);
+        return d.toLocaleDateString('en-GB', { day:'numeric', month:'short' });
+      });
+      const temps = data.map(h => h.temperature);
+      const humidities = data.map(h => h.humidity);
+
+      if (trendChart) trendChart.destroy();  // destroy old chart before making new one
+
+      const ctx = document.getElementById('trendChart').getContext('2d');
+      trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Temperature (°C)',
+              data: temps,
+              borderColor: '#4fc3f7',
+              backgroundColor: 'rgba(79,195,247,0.08)',
+              fill: true,
+              tension: 0.4,
+              pointRadius: 3,
+              pointBackgroundColor: '#4fc3f7',
+              yAxisID: 'y',
+            },
+            {
+              label: 'Humidity (%)',
+              data: humidities,
+              borderColor: 'rgba(255,179,71,0.6)',
+              backgroundColor: 'transparent',
+              borderDash: [4, 4],
+              tension: 0.4,
+              pointRadius: 2,
+              yAxisID: 'y1',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: '#5a6478', font: { family: 'DM Mono', size: 11 }, boxWidth: 12 } },
+            tooltip: {
+              backgroundColor: '#121926', borderColor: 'rgba(255,255,255,.07)', borderWidth: 1,
+              titleColor: '#e8edf5', bodyColor: '#5a6478',
+              titleFont: { family: 'Syne', size: 13 },
+            }
+          },
+          scales: {
+            x: { ticks: { color: '#3a4258', font: { family: 'DM Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+            y: { ticks: { color: '#5a6478', font: { family: 'DM Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+            y1: { position: 'right', ticks: { color: '#5a6478', font: { family: 'DM Mono', size: 10 } }, grid: { drawOnChartArea: false } }
+          }
+        }
+      });
+    }
+
+    // ---- FETCH INSIGHTS ----
+    async function loadInsights(city) {
+      const res = await fetch(`/api/weather/insights?city=${encodeURIComponent(city)}`);
+      const d = await res.json();
+      document.getElementById('insAvg').textContent   = d.avg_temp + '°';
+      document.getElementById('insMax').textContent   = d.max_temp + '°';
+      document.getElementById('insMin').textContent   = d.min_temp + '°';
+      document.getElementById('insRange').textContent = d.temp_range + '°';
+      document.getElementById('insHum').textContent   = d.avg_humidity + '%';
+      document.getElementById('insPts').textContent   = d.data_points;
+    }
+
+    // ---- FETCH PREDICTION ----
+    async function loadPrediction(city) {
+      const res = await fetch(`/api/weather/prediction?city=${encodeURIComponent(city)}`);
+      const d = await res.json();
+      if (d.error) return;
+
+      document.getElementById('predTemp').textContent = d.predicted_temp + '°';
+
+      const trendEl = document.getElementById('predTrend');
+      const arrows = { rising: '↑ Rising', falling: '↓ Falling', stable: '→ Stable' };
+      const classes = { rising: 'trend-rising', falling: 'trend-falling', stable: 'trend-stable' };
+      trendEl.textContent = arrows[d.trend] || d.trend;
+      trendEl.className = 'pred-trend ' + (classes[d.trend] || 'trend-stable');
+
+      const pct = Math.round(d.confidence * 100);
+      document.getElementById('predConf').textContent = `Confidence: ${pct}%`;
+      document.getElementById('confBar').style.width = pct + '%';
+    }
+
+    // ---- LOAD ALL ----
+    async function loadAll() {
+      const city = getCity();
+      showSpinner(true);
+      try {
+        await Promise.all([
+          loadCurrent(city),
+          loadForecast(city),
+          loadHistory(city),
+          loadInsights(city),
+          loadPrediction(city),
+        ]);
+        // Promise.all runs all 5 fetches simultaneously and waits for all to finish.
+      } catch (e) {
+        showToast('⚠ ' + (e.message || 'Something went wrong'));
+      } finally {
+        showSpinner(false);
+        // 'finally' block always runs, whether the try succeeded or failed.
+      }
+    }
+
+    // Allow pressing Enter in search box
+    document.getElementById('cityInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') loadAll();
+    });
+
+    // Load on page open
+    loadAll();
+  </script>
+</body>
+</html>
